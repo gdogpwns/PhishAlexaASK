@@ -1,18 +1,19 @@
-import json
-import re
-from datetime import date
-import logging
 import requests
+import pprint
 from ask_sdk_core.skill_builder import SkillBuilder
+import ask_sdk_model
 from ask_sdk_model.ui import SimpleCard
 from ask_sdk_model.interfaces import audioplayer
 from ask_sdk_core.utils import is_request_type, is_intent_name
-from ask_sdk_model.services.directive import directive_service_client
+
 sb = SkillBuilder()
+pp = pprint.PrettyPrinter(indent=4)
 handler = sb.lambda_handler()
 intent = sb.request_handler(can_handle_func=is_intent_name({}))
 URL = "http://phish.in/api/v1"
 
+track_dict = {}
+position = 0
 
 def alexa_say(handler_input, speech_text):
     handler_input.response_builder.speak(speech_text).ask(speech_text).set_card(
@@ -27,6 +28,7 @@ def launch_request_handler(handler_input):
     handler_input.response_builder.speak(speech_text).set_card(
          SimpleCard("Phish Stream", speech_text)).set_should_end_session(
          False)
+    print(handler_input.response_builder.response)
     return handler_input.response_builder.response
 
 
@@ -57,6 +59,8 @@ def all_exception_handler(handler_input, exception):
     handler_input.response_builder.speak(speech).ask(speech)
     return handler_input.response_builder.response
 
+
+
 @sb.request_handler(can_handle_func=is_intent_name("ShowIntent"))
 def get_date(handler_input):
     # Gets date from end user and converts it to a string
@@ -68,14 +72,12 @@ def get_date(handler_input):
     response = requests.get(show_date)
     # Converts byte type to list
     info = response.json()
-    print (info)
     # Gets only the data list within info
     data = info.get("data")
     # Gets only the tracks list within data
     tracks = data.get("tracks")
     # An increment to see if the track exists
     i = 0
-    mp3_list = []
     while True:
         try:
             tracks_dict = tracks[i]
@@ -83,12 +85,36 @@ def get_date(handler_input):
             break
         else:
             mp3 = tracks_dict.get("mp3")
-            mp3_list.append(mp3)
+            track_title = tracks_dict.get("title")
+            track_set = tracks_dict.get("set")
+            track_position = tracks_dict.get("position")
+            track_list = [mp3, track_title, track_set]
+            track_dict[track_position] = track_list
             i += 1
-    speech_text = "Got it."
-    #return alexa_say(handler_input, speech_text)
-    from ask_sdk_model.interfaces.audioplayer import play_directive
-    audio_file = audioplayer.Stream(url="https://phish.in/audio/000/031/552/31552.mp3")
-    play_directive.PlayDirective(audio_item=audio_file)
-    #return handler_input.request_envelope audioplayer.stream.Stream(url=mp3_list[0])
-#print (audioplayer.Stream(url="https://phish.in/audio/000/031/552/31552.mp3"))
+    return play_music(track_dict, 1)
+
+def play_music(track_dict, position):
+    track_metadata = track_dict.get(position)
+    url = track_metadata[0]
+    track_title = track_metadata[1]
+    track_set = track_metadata[2]
+    previous_token = position - 1
+    position_str = str(position)
+    if previous_token == 0:
+        queue_behavior = "REPLACE_ALL"
+        previous_token = None
+    else:
+        queue_behavior = "ENQUEUE"
+    card = ask_sdk_model.ui.SimpleCard(title=track_title)
+    output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Playing.")
+    stream = audioplayer.Stream(expected_previous_token=previous_token, token=position_str, url=url, offset_in_milliseconds=0)
+    metadata = audioplayer.AudioItemMetadata(title=track_title)
+    audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
+    play_behavior = audioplayer.PlayBehavior(queue_behavior)
+    directives = (audioplayer.PlayDirective(play_behavior=play_behavior,audio_item=audio_item))
+    return ask_sdk_model.Response(card=card, output_speech=output_speech, directives=[directives], should_end_session=True)
+
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
+def next_track(handler_input):
+    position += 1
+    play_music(track_dict, position)
