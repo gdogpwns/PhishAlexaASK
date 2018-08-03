@@ -12,8 +12,7 @@ handler = sb.lambda_handler()
 intent = sb.request_handler(can_handle_func=is_intent_name({}))
 URL = "http://phish.in/api/v1"
 
-track_dict = {}
-position = 0
+
 
 def alexa_say(handler_input, speech_text):
     handler_input.response_builder.speak(speech_text).ask(speech_text).set_card(
@@ -44,9 +43,10 @@ def help_intent_handler(handler_input):
         is_intent_name("AMAZON.StopIntent")(input))
 def cancel_and_stop_intent_handler(handler_input):
     speech_text = "Goodbye! Whatever you do, take care of your shoe."
-    #handler_input.response_builder.speak(speech_text).set_card(
-    #    SimpleCard("Phish Stream", speech_text))
-    #return handler_input.response_builder.response
+    handler_input.response_builder.speak(speech_text).set_card(
+         SimpleCard("Phish Stream", speech_text)).set_should_end_session(
+         True)
+    return handler_input.response_builder.response
     return alexa_say(handler_input, speech_text)
 
 
@@ -59,7 +59,8 @@ def all_exception_handler(handler_input, exception):
     handler_input.response_builder.speak(speech).ask(speech)
     return handler_input.response_builder.response
 
-
+track_dict = {}
+position = 0
 
 @sb.request_handler(can_handle_func=is_intent_name("ShowIntent"))
 def get_date(handler_input):
@@ -90,8 +91,11 @@ def get_date(handler_input):
             track_position = tracks_dict.get("position")
             track_list = [mp3, track_title, track_set]
             track_dict[track_position] = track_list
+            global position
+            position = 1
             i += 1
-    return play_music(track_dict, 1)
+    return play_music(track_dict, position)
+
 
 def play_music(track_dict, position):
     track_metadata = track_dict.get(position)
@@ -116,5 +120,7 @@ def play_music(track_dict, position):
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
 def next_track(handler_input):
+    global position
     position += 1
-    play_music(track_dict, position)
+    print("Position: " + position)
+    return play_music(track_dict, position)
