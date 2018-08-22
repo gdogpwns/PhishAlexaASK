@@ -6,12 +6,11 @@ from ask_sdk_model.ui import SimpleCard
 from ask_sdk_model.interfaces import audioplayer
 from ask_sdk_core.utils import is_request_type, is_intent_name
 
+
 sb = SkillBuilder()
 pp = pprint.PrettyPrinter(indent=4)
 handler = sb.lambda_handler()
-intent = sb.request_handler(can_handle_func=is_intent_name({}))
 URL = "http://phish.in/api/v1"
-
 
 
 def alexa_say(handler_input, speech_text):
@@ -47,7 +46,7 @@ def cancel_and_stop_intent_handler(handler_input):
          SimpleCard("Phish Stream", speech_text)).set_should_end_session(
          True)
     return handler_input.response_builder.response
-    return alexa_say(handler_input, speech_text)
+    # return alexa_say(handler_input, speech_text)
 
 
 @sb.exception_handler(can_handle_func=lambda i, e: True)
@@ -59,11 +58,11 @@ def all_exception_handler(handler_input, exception):
     handler_input.response_builder.speak(speech).ask(speech)
     return handler_input.response_builder.response
 
-track_dict = {}
-position = 0
 
 @sb.request_handler(can_handle_func=is_intent_name("ShowIntent"))
 def get_date(handler_input):
+    global track
+    track = TrackData()
     # Gets date from end user and converts it to a string
     user_date = handler_input.request_envelope.request.intent.slots
     alexa_date = user_date["DateInput"].value
@@ -81,46 +80,112 @@ def get_date(handler_input):
     i = 0
     while True:
         try:
-            tracks_dict = tracks[i]
+            phishin_dict = tracks[i]
         except:
             break
         else:
-            mp3 = tracks_dict.get("mp3")
-            track_title = tracks_dict.get("title")
-            track_set = tracks_dict.get("set")
-            track_position = tracks_dict.get("position")
+            mp3 = phishin_dict.get("mp3")
+            track_title = phishin_dict.get("title")
+            track_set = phishin_dict.get("set")
+            track_position = phishin_dict.get("position")
             track_list = [mp3, track_title, track_set]
-            track_dict[track_position] = track_list
-            global position
-            position = 1
+            track.track_dict[track_position] = track_list
+            print (track.track_dict)
             i += 1
-    return play_music(track_dict, position)
+    # Make track.position changable if user wants to start somewhere else
+    track.position = 1
+    return play_music()
 
 
-def play_music(track_dict, position):
-    track_metadata = track_dict.get(position)
-    url = track_metadata[0]
-    track_title = track_metadata[1]
-    track_set = track_metadata[2]
-    previous_token = position - 1
-    position_str = str(position)
-    if previous_token == 0:
+def play_music():
+    if track.position == 1:
         queue_behavior = "REPLACE_ALL"
-        previous_token = None
+        track.previous_token = None
+        track.previous_str = None
     else:
         queue_behavior = "ENQUEUE"
+        track.position_str = str(track.position)
+        track.previous_token = (track.position - 1)
+        track.previous_str = str(track.previous_token)
+
+    # Breaks down track_metadata into usable values
+    track_metadata = track.track_dict.get(track.position)
+    url = track_metadata[0]
+    track_title = track_metadata[1]
+    print("URL: " + url)
+    print("track_title: " + track_title)
+
     card = ask_sdk_model.ui.SimpleCard(title=track_title)
     output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Playing.")
-    stream = audioplayer.Stream(expected_previous_token=previous_token, token=position_str, url=url, offset_in_milliseconds=0)
+    stream = audioplayer.Stream(expected_previous_token=track.previous_str, token=track.position_str, url=url, offset_in_milliseconds=0)
     metadata = audioplayer.AudioItemMetadata(title=track_title)
     audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
     play_behavior = audioplayer.PlayBehavior(queue_behavior)
-    directives = (audioplayer.PlayDirective(play_behavior=play_behavior,audio_item=audio_item))
+    directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
     return ask_sdk_model.Response(card=card, output_speech=output_speech, directives=[directives], should_end_session=True)
 
-@sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
+
+# Created a new intent because I couldn't find out how to use the integrated AMAZON.NextIntent
+# Should only be temporary
+@sb.request_handler(can_handle_func=is_intent_name("SkipIntent"))
 def next_track(handler_input):
-    global position
-    position += 1
-    print("Position: " + position)
-    return play_music(track_dict, position)
+    track.position += 1
+    print("Position: " + str(track.position))
+    return play_music()
+
+
+@sb.request_handler(can_handle_func=is_intent_name("PreviousIntent"))
+def previous_track(handler_input):
+    track.position -= 1
+    print("Position: " + str(track.position))
+    return play_music()
+
+
+@sb.request_handler(can_handle_func=is_intent_name("SetIntent"))
+# This code is all broken!
+# You were trying to make the code find the first song with the set input then put the position there.
+def go_to_set(handler_input):
+    user_input = handler_input.request_envelope.request.intent.slots
+    input_set = user_input["SetSlot"].value
+    i = 1
+
+    def song_search(i):
+        track_metadata = track.track_dict.get(i)
+        track_set = track_metadata[2]
+        if track_set == str(input_set):
+            track.position = i
+            track.position_str = str(track.position)
+            return play_music()
+        else:
+            i += 1
+            song_search(i)
+    song_search(i)
+    return play_music()
+
+
+@sb.request_handler(can_handle_func=is_intent_name("EncoreIntent"))
+def go_to_encore(handler_input):
+    i = 1
+
+    def song_search(i):
+        track_metadata = track.track_dict.get(i)
+        track_set = track_metadata[2]
+        if track_set == "E":
+            track.position = i
+            track.position_str = str(track.position)
+            return play_music()
+        else:
+            i += 1
+            song_search(i)
+    song_search(i)
+    return play_music()
+
+
+# Work in progress - Store all song metadata in a class for cleaner code
+class TrackData:
+    def __init__(self):
+        self.track_dict = {}
+        self.position = 1
+        self.position_str = str(self.position)
+        self.previous_token = (self.position - 1)
+        self.previous_str = str(self.previous_token)
