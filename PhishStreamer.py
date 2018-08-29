@@ -94,16 +94,18 @@ def get_date(handler_input):
             i += 1
     # Make track.position changable if user wants to start somewhere else
     track.position = 1
-    return play_music()
+    return play_music(replace=True)
 
 
-def play_music():
+def play_music(replace):
+    output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Playing.")
     if track.position == 1:
         queue_behavior = "REPLACE_ALL"
         track.previous_token = None
         track.previous_str = None
     else:
         queue_behavior = "ENQUEUE"
+        output_speech = None
         track.position_str = str(track.position)
         track.previous_token = (track.position - 1)
         track.previous_str = str(track.previous_token)
@@ -115,30 +117,58 @@ def play_music():
     print("URL: " + url)
     print("track_title: " + track_title)
 
+    if replace is True:
+        queue_behavior = "REPLACE_ALL"
+        card = ask_sdk_model.ui.SimpleCard(title=track_title)
+        stream = audioplayer.Stream(token=track.position_str, url=url, offset_in_milliseconds=0)
+        metadata = audioplayer.AudioItemMetadata(title=track_title)
+        audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
+        play_behavior = audioplayer.PlayBehavior(queue_behavior)
+        directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
+        return ask_sdk_model.Response(card=card, output_speech=output_speech, directives=[directives],
+                                      should_end_session=True)
+    elif replace is False:
+        queue_behavior = "ENQUEUE"
+        stream = audioplayer.Stream(expected_previous_token=track.previous_str, token=track.position_str, url=url,
+                                    offset_in_milliseconds=0)
+        metadata = audioplayer.AudioItemMetadata(title=track_title)
+        audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
+        play_behavior = audioplayer.PlayBehavior(queue_behavior)
+        directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
+        return ask_sdk_model.Response(directives=[directives], should_end_session=True)
+
+
+@sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackStarted"))
+def send_card(handler_input):
+    print("PLAYBACK STARTED")
+    track_metadata = track.track_dict.get(track.position)
+    track_title = track_metadata[1]
     card = ask_sdk_model.ui.SimpleCard(title=track_title)
-    output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Playing.")
-    stream = audioplayer.Stream(expected_previous_token=track.previous_str, token=track.position_str, url=url, offset_in_milliseconds=0)
-    metadata = audioplayer.AudioItemMetadata(title=track_title)
-    audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
-    play_behavior = audioplayer.PlayBehavior(queue_behavior)
-    directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
-    return ask_sdk_model.Response(card=card, output_speech=output_speech, directives=[directives], should_end_session=True)
+    return ask_sdk_model.Response(card=card)
+
+@sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackNearlyFinished"))
+def queue_next_song(handler_input):
+    track.position += 1
+    print("Position: " + str(track.position))
+    return play_music(replace=False)
 
 
 # Created a new intent because I couldn't find out how to use the integrated AMAZON.NextIntent
 # Should only be temporary
-@sb.request_handler(can_handle_func=is_intent_name("SkipIntent"))
+#@sb.request_handler(can_handle_func=is_intent_name("SkipIntent"))
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
 def next_track(handler_input):
     track.position += 1
     print("Position: " + str(track.position))
-    return play_music()
+    return play_music(replace=True)
 
 
-@sb.request_handler(can_handle_func=is_intent_name("PreviousIntent"))
+#@sb.request_handler(can_handle_func=is_intent_name("PreviousIntent"))
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.PreviousIntent"))
 def previous_track(handler_input):
     track.position -= 1
     print("Position: " + str(track.position))
-    return play_music()
+    return play_music(replace=True)
 
 
 @sb.request_handler(can_handle_func=is_intent_name("SetIntent"))
@@ -160,7 +190,7 @@ def go_to_set(handler_input):
             i += 1
             song_search(i)
     song_search(i)
-    return play_music()
+    return play_music(replace=True)
 
 
 @sb.request_handler(can_handle_func=is_intent_name("EncoreIntent"))
@@ -173,12 +203,12 @@ def go_to_encore(handler_input):
         if track_set == "E":
             track.position = i
             track.position_str = str(track.position)
-            return play_music()
+            return play_music(replace=True)
         else:
             i += 1
             song_search(i)
     song_search(i)
-    return play_music()
+    return play_music(replace=True)
 
 
 # Work in progress - Store all song metadata in a class for cleaner code
