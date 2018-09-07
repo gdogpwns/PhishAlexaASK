@@ -13,11 +13,6 @@ handler = sb.lambda_handler()
 URL = "http://phish.in/api/v1"
 
 
-def alexa_say(handler_input, speech_text):
-    handler_input.response_builder.speak(speech_text).ask(speech_text).set_card(
-        SimpleCard("Phish Stream", speech_text))
-    return handler_input.response_builder.response
-
 
 @sb.request_handler(can_handle_func=is_request_type("LaunchRequest"))
 def launch_request_handler(handler_input):
@@ -26,14 +21,16 @@ def launch_request_handler(handler_input):
     handler_input.response_builder.speak(speech_text).set_card(
          SimpleCard("Phish Stream", speech_text)).set_should_end_session(
          False)
-    print(handler_input.response_builder.response)
     return handler_input.response_builder.response
 
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.HelpIntent"))
 def help_intent_handler(handler_input):
     speech_text = "You can ask for me to play a Phish show."
-    return alexa_say(handler_input, speech_text)
+    handler_input.response_builder.speak(speech_text).set_card(
+         SimpleCard("Phish Stream", speech_text)).set_should_end_session(
+         True)
+    return handler_input.response_builder.response
 
 
 @sb.request_handler(
@@ -46,16 +43,17 @@ def cancel_and_stop_intent_handler(handler_input):
          SimpleCard("Phish Stream", speech_text)).set_should_end_session(
          True)
     return handler_input.response_builder.response
-    # return alexa_say(handler_input, speech_text)
 
 
 @sb.exception_handler(can_handle_func=lambda i, e: True)
 def all_exception_handler(handler_input, exception):
     # Log the exception in CloudWatch Logs
     print(exception)
-
-    speech = "Sorry, I didn't get that. Can you please say it again!"
-    handler_input.response_builder.speak(speech).ask(speech)
+    speech_text = "Sorry, I didn't get that. Can you please say it again?"
+    display_text = speech_text
+    handler_input.response_builder.speak(speech_text).ask(speech_text).set_card(
+            SimpleCard("Phish Stream", display_text)).set_should_end_session(
+            True)
     return handler_input.response_builder.response
 
 
@@ -69,11 +67,29 @@ def get_date(handler_input):
     print (alexa_date)
     show_date = (URL + "/shows/" + alexa_date)
     # Pulls .json from Phish.in
-    response = requests.get(show_date)
+    try:
+        response = requests.get(show_date)
+        print(response)
+    except ConnectionError:
+        speech_text = ("It appears that the fish dot in website is down. Please try again later.")
+        display_text = ("Please try again later.")
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard("Phish Stream", display_text)).set_should_end_session(
+            True)
+        return handler_input.response_builder.response
     # Converts byte type to list
     info = response.json()
     # Gets only the data list within info
-    data = info.get("data")
+    try:
+        data = info.get("data")
+    except:
+        print("ERROR: Cannot find show.")
+        speech_text = ("I can't find this show right now. Double check that you said the date correctly.")
+        display_text = ("I can't find this show.")
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard("Phish Stream", display_text)).set_should_end_session(
+            True)
+        return handler_input.response_builder.response
     # Gets only the tracks list within data
     tracks = data.get("tracks")
     # An increment to see if the track exists
@@ -146,6 +162,7 @@ def send_card(handler_input):
     card = ask_sdk_model.ui.SimpleCard(title=track_title)
     return ask_sdk_model.Response(card=card)
 
+
 @sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackNearlyFinished"))
 def queue_next_song(handler_input):
     track.position += 1
@@ -153,9 +170,6 @@ def queue_next_song(handler_input):
     return play_music(replace=False)
 
 
-# Created a new intent because I couldn't find out how to use the integrated AMAZON.NextIntent
-# Should only be temporary
-#@sb.request_handler(can_handle_func=is_intent_name("SkipIntent"))
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
 def next_track(handler_input):
     track.position += 1
@@ -163,7 +177,6 @@ def next_track(handler_input):
     return play_music(replace=True)
 
 
-#@sb.request_handler(can_handle_func=is_intent_name("PreviousIntent"))
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.PreviousIntent"))
 def previous_track(handler_input):
     track.position -= 1
