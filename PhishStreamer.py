@@ -13,13 +13,13 @@ handler = sb.lambda_handler()
 URL = "http://phish.in/api/v1"
 
 
-
 @sb.request_handler(can_handle_func=is_request_type("LaunchRequest"))
 def launch_request_handler(handler_input):
     speech_text = "Welcome to Phish Stream. What is the date of the show you would like to listen to?"
-
+    card_text = "What is the date of the show?"
+    display_text = "Phish Stream"
     handler_input.response_builder.speak(speech_text).set_card(
-         SimpleCard("Phish Stream", speech_text)).set_should_end_session(
+         SimpleCard(display_text, card_text)).set_should_end_session(
          False)
     return handler_input.response_builder.response
 
@@ -27,9 +27,20 @@ def launch_request_handler(handler_input):
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.HelpIntent"))
 def help_intent_handler(handler_input):
     speech_text = "You can ask for me to play a Phish show."
+    card_text = "Ask me to play a Phish show."
     handler_input.response_builder.speak(speech_text).set_card(
-         SimpleCard("Phish Stream", speech_text)).set_should_end_session(
+         SimpleCard(card_text, speech_text)).set_should_end_session(
          True)
+    return handler_input.response_builder.response
+
+
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.FallbackIntent"))
+def fallback_handler(handler_input):
+    speech_text = "I'm sorry, Dave. I'm afraid I can't do that."
+    card_text = "I can't do that yet."
+    handler_input.response_builder.speak(speech_text).set_card(
+        SimpleCard(card_text, speech_text)).set_should_end_session(
+        True)
     return handler_input.response_builder.response
 
 
@@ -39,12 +50,14 @@ def help_intent_handler(handler_input):
         is_intent_name("AMAZON.StopIntent")(input))
 def cancel_and_stop_intent_handler(handler_input):
     speech_text = "Goodbye! Whatever you do, take care of your shoe."
+    card_text = "Goodbye!"
     handler_input.response_builder.speak(speech_text).set_card(
-         SimpleCard("Phish Stream", speech_text)).set_should_end_session(
+         SimpleCard(card_text, speech_text)).set_should_end_session(
          True)
     return handler_input.response_builder.response
 
-
+# Exception handler
+'''
 @sb.exception_handler(can_handle_func=lambda i, e: True)
 def all_exception_handler(handler_input, exception):
     # Log the exception in CloudWatch Logs
@@ -55,7 +68,7 @@ def all_exception_handler(handler_input, exception):
             SimpleCard("Phish Stream", display_text)).set_should_end_session(
             True)
     return handler_input.response_builder.response
-
+'''
 
 @sb.request_handler(can_handle_func=is_intent_name("ShowIntent"))
 def get_date(handler_input):
@@ -80,8 +93,10 @@ def get_date(handler_input):
     # Converts byte type to list
     info = response.json()
     # Gets only the data list within info
+    data = info.get("data")
+    # Gets only the tracks list within data
     try:
-        data = info.get("data")
+        tracks = data.get("tracks")
     except:
         print("ERROR: Cannot find show.")
         speech_text = ("I can't find this show right now. Double check that you said the date correctly.")
@@ -90,8 +105,6 @@ def get_date(handler_input):
             SimpleCard("Phish Stream", display_text)).set_should_end_session(
             True)
         return handler_input.response_builder.response
-    # Gets only the tracks list within data
-    tracks = data.get("tracks")
     # An increment to see if the track exists
     i = 0
     while True:
@@ -184,6 +197,26 @@ def previous_track(handler_input):
     return play_music(replace=True)
 
 
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.PauseIntent"))
+def pause(handler_input):
+    speech_text = ("Pausing.")
+    display_text = ("Pausing.")
+    handler_input.response_builder.speak(speech_text).set_card(
+        SimpleCard("Phish Stream", display_text)).set_should_end_session(
+        True)
+    return handler_input.response_builder.response
+
+
+@sb.request_handler(can_handle_func=is_intent_name("AMAZON.PlayIntent"))
+def play(handler_input):
+    speech_text = ("Playing.")
+    display_text = ("Playing.")
+    handler_input.response_builder.speak(speech_text).set_card(
+        SimpleCard("Phish Stream", display_text)).set_should_end_session(
+        True)
+    return handler_input.response_builder.response
+
+
 @sb.request_handler(can_handle_func=is_intent_name("SetIntent"))
 # This code is all broken!
 # You were trying to make the code find the first song with the set input then put the position there.
@@ -198,7 +231,7 @@ def go_to_set(handler_input):
         if track_set == str(input_set):
             track.position = i
             track.position_str = str(track.position)
-            return play_music()
+            return play_music(replace=True)
         else:
             i += 1
             song_search(i)
