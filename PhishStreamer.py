@@ -77,12 +77,11 @@ def get_date(handler_input):
     # Gets date from end user and converts it to a string
     user_date = handler_input.request_envelope.request.intent.slots
     alexa_date = user_date["DateInput"].value
-    print (alexa_date)
+    print(alexa_date)
     show_date = (URL + "/shows/" + alexa_date)
     # Pulls .json from Phish.in
     try:
         response = requests.get(show_date)
-        print(response)
     except ConnectionError:
         speech_text = ("It appears that the fish dot in website is down. Please try again later.")
         display_text = ("Please try again later.")
@@ -119,7 +118,6 @@ def get_date(handler_input):
             track_position = phishin_dict.get("position")
             track_list = [mp3, track_title, track_set]
             track.track_dict[track_position] = track_list
-            print (track.track_dict)
             i += 1
     # Make track.position changable if user wants to start somewhere else
     track.position = 1
@@ -128,12 +126,13 @@ def get_date(handler_input):
 
 def play_music(replace):
     output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Playing.")
-    if track.position == 1:
-        queue_behavior = "REPLACE_ALL"
+    if replace is True and track.position == 1:
         track.previous_token = None
         track.previous_str = None
-    else:
-        queue_behavior = "ENQUEUE"
+    elif replace is True:
+        track.previous_token = None
+        track.previous_str = None
+    elif replace is False:
         output_speech = None
         track.position_str = str(track.position)
         track.previous_token = (track.position - 1)
@@ -143,37 +142,48 @@ def play_music(replace):
     track_metadata = track.track_dict.get(track.position)
     url = track_metadata[0]
     track_title = track_metadata[1]
-    print("URL: " + url)
-    print("track_title: " + track_title)
-
+    offset = track.offset_in_milliseconds
+    '''
     if replace is True:
         queue_behavior = "REPLACE_ALL"
-        card = ask_sdk_model.ui.SimpleCard(title=track_title)
-        stream = audioplayer.Stream(token=track.position_str, url=url, offset_in_milliseconds=0)
-        metadata = audioplayer.AudioItemMetadata(title=track_title)
+        stream = audioplayer.Stream(token=track.position_str, url=url, offset_in_milliseconds=offset)
+        metadata = audioplayer.AudioItemMetadata(title=track_title, subtitle="Phish")
         audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
         play_behavior = audioplayer.PlayBehavior(queue_behavior)
         directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
-        return ask_sdk_model.Response(card=card, output_speech=output_speech, directives=[directives],
+        return ask_sdk_model.Response(output_speech=output_speech, directives=[directives],
                                       should_end_session=True)
+    '''
+    '''
     elif replace is False:
         queue_behavior = "ENQUEUE"
         stream = audioplayer.Stream(expected_previous_token=track.previous_str, token=track.position_str, url=url,
-                                    offset_in_milliseconds=0)
-        metadata = audioplayer.AudioItemMetadata(title=track_title)
+                                    offset_in_milliseconds=offset)
+        metadata = audioplayer.AudioItemMetadata(title=track_title, subtitle="Phish")
         audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
         play_behavior = audioplayer.PlayBehavior(queue_behavior)
         directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
         return ask_sdk_model.Response(directives=[directives], should_end_session=True)
+    '''
+    if replace is True:
+        queue_behavior = "REPLACE_ALL"
+    elif replace is False:
+        queue_behavior = "ENQUEUE"
+
+    stream = audioplayer.Stream(expected_previous_token=track.previous_str, token=track.position_str, url=url,
+                                offset_in_milliseconds=offset)
+    metadata = audioplayer.AudioItemMetadata(title=track_title, subtitle="Phish")
+    audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
+    play_behavior = audioplayer.PlayBehavior(queue_behavior)
+    directives = (audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item))
+    track.offset_in_milliseconds = 0
+    return ask_sdk_model.Response(directives=[directives], should_end_session=True)
 
 
 @sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackStarted"))
 def send_card(handler_input):
     print("PLAYBACK STARTED")
-    track_metadata = track.track_dict.get(track.position)
-    track_title = track_metadata[1]
-    card = ask_sdk_model.ui.SimpleCard(title=track_title)
-    return ask_sdk_model.Response(card=card)
+    track.offset_in_milliseconds = 0
 
 
 @sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackNearlyFinished"))
@@ -183,6 +193,12 @@ def queue_next_song(handler_input):
     return play_music(replace=False)
 
 
+@sb.request_handler(can_handle_func=is_request_type("AudioPlayer.PlaybackStopped"))
+def playback_stopped(handler_input):
+    offset_in_milliseconds = handler_input.request_envelope.context.audio_player.offset_in_milliseconds
+    track.offset_in_milliseconds = offset_in_milliseconds
+
+
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.NextIntent"))
 def next_track(handler_input):
     track.position += 1
@@ -190,8 +206,22 @@ def next_track(handler_input):
     return play_music(replace=True)
 
 
+@sb.request_handler(can_handle_func=is_request_type("PlaybackController.NextCommandIssued"))
+def next_track_controller(handler_input):
+    track.position += 1
+    print("Position: " + str(track.position))
+    return play_music(replace=True)
+
+
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.PreviousIntent"))
 def previous_track(handler_input):
+    track.position -= 1
+    print("Position: " + str(track.position))
+    return play_music(replace=True)
+
+
+@sb.request_handler(can_handle_func=is_request_type("PlaybackController.PreviousCommandIssued"))
+def previous_track_controller(handler_input):
     track.position -= 1
     print("Position: " + str(track.position))
     return play_music(replace=True)
@@ -209,12 +239,13 @@ def pause(handler_input):
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.PlayIntent"))
 def play(handler_input):
-    speech_text = ("Playing.")
-    display_text = ("Playing.")
-    handler_input.response_builder.speak(speech_text).set_card(
-        SimpleCard("Phish Stream", display_text)).set_should_end_session(
-        True)
-    return handler_input.response_builder.response
+    return play_music(replace=False)
+
+
+@sb.request_handler(can_handle_func=is_request_type("PlaybackController.PlayCommandIssued"))
+def play_controller(handler_input):
+    return play_music(replace=False)
+
 
 
 @sb.request_handler(can_handle_func=is_intent_name("SetIntent"))
@@ -257,7 +288,6 @@ def go_to_encore(handler_input):
     return play_music(replace=True)
 
 
-# Work in progress - Store all song metadata in a class for cleaner code
 class TrackData:
     def __init__(self):
         self.track_dict = {}
@@ -265,3 +295,4 @@ class TrackData:
         self.position_str = str(self.position)
         self.previous_token = (self.position - 1)
         self.previous_str = str(self.previous_token)
+        self.offset_in_milliseconds = 0
