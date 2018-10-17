@@ -46,6 +46,7 @@ def help_intent_handler(handler_input):
     return handler_input.response_builder.response
 
 
+'''
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.FallbackIntent"))
 def fallback_handler(handler_input):
     speech_text = "I'm sorry, Dave. I'm afraid I can't do that."
@@ -54,6 +55,7 @@ def fallback_handler(handler_input):
         SimpleCard(card_text, speech_text)).set_should_end_session(
         True)
     return handler_input.response_builder.response
+'''
 
 
 @sb.request_handler(
@@ -89,7 +91,15 @@ def get_date(handler_input):
     user_date = handler_input.request_envelope.request.intent.slots
     alexa_date = user_date["DateInput"].value
     print(alexa_date)
-    show_date = (URL + "/shows/" + alexa_date)
+    try:
+        show_date = (URL + "/shows/" + alexa_date)
+    except TypeError:
+        speech_text = ("Sorry, but I don't understand that date. Please relaunch Phish Stream and try again.")
+        display_text = ("Sorry, I don't understand.")
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard("Phish Stream", display_text)).set_should_end_session(
+            True)
+        return handler_input.response_builder.response
     # Pulls .json from Phish.in
     try:
         response = requests.get(show_date)
@@ -107,7 +117,7 @@ def get_date(handler_input):
     # Gets only the tracks list within data
     try:
         tracks = data.get("tracks")
-    except NameError:
+    except:
         print("ERROR: Cannot find show.")
         speech_text = ("I can't find this show right now. Double check that you said the date correctly.")
         display_text = ("I can't find this show.")
@@ -151,10 +161,15 @@ def play_music(replace):
         track.position_str = str(track.position)
         track.previous_token = (track.position - 1)
         track.previous_str = str(track.previous_token)
-
     # Breaks down track_metadata into usable values
     track_metadata = track.track_dict.get(track.position)
-    url = track_metadata[0]
+    try:
+        url = track_metadata[0]
+    except NameError:
+        output_speech = ask_sdk_model.ui.PlainTextOutputSpeech(text="Please give me a date first before you do this.")
+        card_text = "Give me a date before you do this."
+        print("URL Error")
+        return ask_sdk_model.Response(output_speech=output_speech, should_end_session=True)
     track_title = track_metadata[1]
     offset = track.offset_in_milliseconds
 
@@ -225,8 +240,9 @@ def previous_track_controller(handler_input):
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.PauseIntent"))
 def pause(handler_input):
-    speech_text = ("Pausing.")
-    display_text = ("Pausing.")
+    # A sad hack because it likes to skip one song forward
+    track.paused_position = track.position
+    track.paused_position_str = str(track.paused_position)
     directive = audioplayer.StopDirective()
     return ask_sdk_model.Response(directives=[directive],
                                   should_end_session=True)
@@ -234,7 +250,28 @@ def pause(handler_input):
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.ResumeIntent"))
 def resume(handler_input):
-    return play_music(replace=False)
+    #return play_music(replace=False)
+    try:
+        track
+    except NameError:
+        speech_text = "Please ask me to play a show before you do this"
+        display_text = "Phish Stream"
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard(display_text, speech_text)).set_should_end_session(True)
+        return handler_input.response_builder.response
+    print ("RESUME POSITION: " + track.paused_position_str)
+    play_behavior = audioplayer.PlayBehavior("REPLACE_ALL")
+    offset = track.offset_in_milliseconds
+    track_metadata = track.track_dict.get(track.paused_position)
+    url = track_metadata[0]
+    track_title = track_metadata[1]
+    stream = audioplayer.Stream(token=track.paused_position_str, url=url,
+                                offset_in_milliseconds=offset)
+    metadata = audioplayer.AudioItemMetadata(title=track_title, subtitle="Phish")
+    audio_item = audioplayer.AudioItem(stream=stream, metadata=metadata)
+    directive = audioplayer.PlayDirective(play_behavior=play_behavior, audio_item=audio_item)
+    return ask_sdk_model.Response(directives=[directive],
+                                  should_end_session=True)
 
 
 @sb.request_handler(can_handle_func=is_intent_name("AMAZON.PlayIntent"))
@@ -325,14 +362,21 @@ def cancel(handler_input):
 @sb.request_handler(can_handle_func=is_intent_name("SetIntent"))
 def go_to_set(handler_input):
     try:
-        dict = track.track_dict
+        track
     except NameError:
-        speech_text = "Please ask me to play a show first. What show would you like to play?"
-        card_text = speech_text
+        speech_text = "Please ask me to play a show before you do this."
         display_text = "Phish Stream"
         handler_input.response_builder.speak(speech_text).set_card(
-            SimpleCard(display_text, card_text)).set_should_end_session(
-            False)
+            SimpleCard(display_text, speech_text)).set_should_end_session(True)
+        return handler_input.response_builder.response
+
+    try:
+        dict = track.track_dict
+    except NameError:
+        speech_text = "Please ask me to play a show before you do this"
+        display_text = "Phish Stream"
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard(display_text, speech_text)).set_should_end_session(True)
         return handler_input.response_builder.response
 
     user_input = handler_input.request_envelope.request.intent.slots
@@ -341,7 +385,14 @@ def go_to_set(handler_input):
 
     def song_search(i):
         track_metadata = track.track_dict.get(i)
-        track_set = track_metadata[2]
+        try:
+            track_set = track_metadata[2]
+        except TypeError:
+            speech_text = "Sorry, but you need to provide a show first."
+            display_text = "Phish Stream"
+            handler_input.response_builder.speak(speech_text).set_card(
+                SimpleCard(display_text, speech_text)).set_should_end_session(True)
+            return handler_input.response_builder.response
         if track_set == str(input_set):
             track.position = i
             track.position_str = str(track.position)
@@ -356,6 +407,17 @@ def go_to_set(handler_input):
 @sb.request_handler(can_handle_func=is_intent_name("EncoreIntent"))
 def go_to_encore(handler_input):
     try:
+        track
+    except NameError:
+        # TODO - Fix this poor hack
+        speech_text = "Please ask me to play a show first. What show would you like to play?"
+        card_text = speech_text
+        display_text = "Phish Stream"
+        handler_input.response_builder.speak(speech_text).set_card(
+            SimpleCard(display_text, card_text)).set_should_end_session(
+            False)
+        return handler_input.response_builder.response
+    try:
         dict = track.track_dict
     except NameError:
         speech_text = "Please ask me to play a show first. What show would you like to play?"
@@ -365,6 +427,7 @@ def go_to_encore(handler_input):
             SimpleCard(display_text, card_text)).set_should_end_session(
             False)
         return handler_input.response_builder.response
+
     i = 1
 
     def song_search(i):
@@ -398,3 +461,5 @@ class TrackData:
         self.previous_token = (self.position - 1)
         self.previous_str = str(self.previous_token)
         self.offset_in_milliseconds = 0
+        self.paused_position = 1
+        self.paused_position_str = "1"
